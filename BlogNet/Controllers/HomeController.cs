@@ -1,5 +1,6 @@
 ﻿using BlogNet.Data;
 using BlogNet.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -7,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 
 namespace BlogNet.Controllers
@@ -75,6 +77,11 @@ namespace BlogNet.Controllers
         {
             return View(_context.Posts
                 .Include(x => x.Category)
+                .Include(x => x.Comments)
+                    .ThenInclude(x => x.Author)
+                .Include(x => x.Comments)
+                    .ThenInclude(x => x.Children)
+                        .ThenInclude(x => x.Author)
                 .FirstOrDefault(x => x.Slug == slug));
         }
 
@@ -89,36 +96,24 @@ namespace BlogNet.Controllers
             return View(new ErrorViewModel { RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier });
         }
 
-int[] PageNumbers(int current, int last)
-{
-    int delta = 2, l = 0;
-
-    int left = current - delta;
-    int right = current + delta + 1;
-
-    List<int> range = new List<int>();
-    List<int> rangeWithDots = new List<int>();
-
-    for (int i = 1; i <= last; i++)
-    {
-        if (i == 1 || i == last || i >= left && i < right)
-            range.Add(i);
-    }
-
-    foreach (var i in range)
-    {
-        if (l != 0)
+        [HttpPost, Authorize]
+        public IActionResult Comment(int postId, string content, int? parentId, string slug)
         {
-            if (i - l == 2)
-                rangeWithDots.Add(l + 1);
-            else if (i - l != 1)
-                rangeWithDots.Add(-1);
-        }
-        rangeWithDots.Add(i);
-        l = i;
-    }
+            content = content.Trim();
+            if (content == "") return BadRequest();
 
-    return rangeWithDots.ToArray();
-}
+            _context.Add(new Comment()
+            {
+                AuthorId = User.FindFirstValue(ClaimTypes.NameIdentifier),
+                CreatedTime = DateTime.Now,
+                ParentId = parentId,
+                PostId = postId,
+                Content = content,
+                IsPublished = true,
+            });
+            _context.SaveChanges();
+
+            return RedirectToAction("ShowPost", new { slug, message = "received" });
+        }
     }
 }
